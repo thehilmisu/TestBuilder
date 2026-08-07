@@ -139,22 +139,17 @@ void MainWindow::createSampleScenario()
 {
     // A small starter graph so the canvas is not empty on first launch.
     NodeItem *start = m_scene->addNode(QStringLiteral("start"), QPointF(-380, -60));
-    NodeItem *home = m_scene->addNode(QStringLiteral("actuator_home"), QPointF(-160, -80));
-    NodeItem *move = m_scene->addNode(QStringLiteral("actuator_move"), QPointF(90, -110));
     NodeItem *check = m_scene->addNode(QStringLiteral("expect_signal"), QPointF(350, -100));
     NodeItem *pass = m_scene->addNode(QStringLiteral("end"), QPointF(620, -140));
     NodeItem *fail = m_scene->addNode(QStringLiteral("end"), QPointF(620, -10));
 
-    if (!start || !home || !move || !check || !pass || !fail)
+    if (!start || !check || !pass || !fail)
         return;
 
     fail->setTitle(tr("End (failed)"));
     fail->setParam(QStringLiteral("verdict"), QStringLiteral("Fail"));
-    move->setParam(QStringLiteral("position"), 1200);
 
-    m_scene->connectPorts(start->outputs().at(0), home->inputs().at(0));
-    m_scene->connectPorts(home->outputs().at(0), move->inputs().at(0));
-    m_scene->connectPorts(move->outputs().at(0), check->inputs().at(0));
+
     m_scene->connectPorts(check->outputs().at(0), pass->inputs().at(0));
     m_scene->connectPorts(check->outputs().at(1), fail->inputs().at(0));
 

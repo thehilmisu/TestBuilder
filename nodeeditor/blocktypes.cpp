@@ -83,63 +83,32 @@ QVector<BlockType> makeBlocks()
     }
     {
         BlockType b;
-        b.id = QStringLiteral("lin_send");
-        b.title = QStringLiteral("Send LIN Frame");
+        b.id = QStringLiteral("set_signal");
+        b.title = QStringLiteral("Set Signal");
         b.category = QStringLiteral("LIN Bus");
-        b.description = QStringLiteral("Publishes an unconditional frame on the bus.");
+        b.description = QStringLiteral("Sets the signal on LIN Bus");
         b.accent = kBus;
         b.inputs = {{QStringLiteral("in")}};
         b.outputs = {{QStringLiteral("out")}};
-        b.params = {text(QStringLiteral("frameId"), QStringLiteral("Frame ID"), QStringLiteral("0x21")),
-                    text(QStringLiteral("data"), QStringLiteral("Data"), QStringLiteral("00 00 00 00")),
-                    choice(QStringLiteral("checksum"), QStringLiteral("Checksum"),
-                           {QStringLiteral("Enhanced"), QStringLiteral("Classic")})};
+        b.params = {text(QStringLiteral("signal"), QStringLiteral("Signal"), QStringLiteral("ACT_Position")),
+                    text(QStringLiteral("value"), QStringLiteral("Value"), QStringLiteral("0")),};
         list.append(b);
     }
-    {
-        BlockType b;
-        b.id = QStringLiteral("lin_request");
-        b.title = QStringLiteral("Request LIN Frame");
-        b.category = QStringLiteral("LIN Bus");
-        b.description = QStringLiteral("Sends a header and captures the slave response.");
-        b.accent = kBus;
-        b.inputs = {{QStringLiteral("in")}};
-        b.outputs = {{QStringLiteral("received")}, {QStringLiteral("timeout")}};
-        b.params = {text(QStringLiteral("frameId"), QStringLiteral("Frame ID"), QStringLiteral("0x22")),
-                    integer(QStringLiteral("timeoutMs"), QStringLiteral("Timeout"), 100, 1, 60000,
-                            QStringLiteral(" ms")),
-                    text(QStringLiteral("store"), QStringLiteral("Store as"), QStringLiteral("response"))};
-        list.append(b);
-    }
-    {
-        BlockType b;
-        b.id = QStringLiteral("actuator_move");
-        b.title = QStringLiteral("Move Actuator");
-        b.category = QStringLiteral("Actuator");
-        b.description = QStringLiteral("Commands a target position and optionally waits.");
-        b.accent = kActuator;
-        b.inputs = {{QStringLiteral("in")}};
-        b.outputs = {{QStringLiteral("out")}};
-        b.params = {text(QStringLiteral("actuator"), QStringLiteral("Actuator"), QStringLiteral("ACT_1")),
-                    integer(QStringLiteral("position"), QStringLiteral("Position"), 0, -32768, 32767),
-                    integer(QStringLiteral("speed"), QStringLiteral("Speed"), 50, 0, 100, QStringLiteral(" %")),
-                    boolean(QStringLiteral("waitReached"), QStringLiteral("Wait until reached"), true)};
-        list.append(b);
-    }
-    {
-        BlockType b;
-        b.id = QStringLiteral("actuator_home");
-        b.title = QStringLiteral("Home Actuator");
-        b.category = QStringLiteral("Actuator");
-        b.description = QStringLiteral("Runs the homing routine of the actuator.");
-        b.accent = kActuator;
-        b.inputs = {{QStringLiteral("in")}};
-        b.outputs = {{QStringLiteral("done")}, {QStringLiteral("failed")}};
-        b.params = {text(QStringLiteral("actuator"), QStringLiteral("Actuator"), QStringLiteral("ACT_1")),
-                    integer(QStringLiteral("timeoutMs"), QStringLiteral("Timeout"), 5000, 1, 600000,
-                            QStringLiteral(" ms"))};
-        list.append(b);
-    }
+    // {
+    //     BlockType b;
+    //     b.id = QStringLiteral("actuator_move");
+    //     b.title = QStringLiteral("Move Actuator");
+    //     b.category = QStringLiteral("Actuator");
+    //     b.description = QStringLiteral("Commands a target position and optionally waits.");
+    //     b.accent = kActuator;
+    //     b.inputs = {{QStringLiteral("in")}};
+    //     b.outputs = {{QStringLiteral("out")}};
+    //     b.params = {text(QStringLiteral("actuator"), QStringLiteral("Actuator"), QStringLiteral("ACT_1")),
+    //                 integer(QStringLiteral("position"), QStringLiteral("Position"), 0, -32768, 32767),
+    //                 integer(QStringLiteral("speed"), QStringLiteral("Speed"), 50, 0, 100, QStringLiteral(" %")),
+    //                 boolean(QStringLiteral("waitReached"), QStringLiteral("Wait until reached"), true)};
+    //     list.append(b);
+    // }
     {
         BlockType b;
         b.id = QStringLiteral("expect_signal");
