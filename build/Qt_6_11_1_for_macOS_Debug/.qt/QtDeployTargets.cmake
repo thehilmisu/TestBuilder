@@ -1,0 +1,2 @@
+set(__QT_DEPLOY_TARGET_TestBuilder_FILE /Users/thehilmisu/Desktop/Workdir/TestBuilder/build/Qt_6_11_1_for_macOS_Debug/TestBuilder.app/Contents/MacOS/TestBuilder)
+set(__QT_DEPLOY_TARGET_TestBuilder_TYPE EXECUTABLE)
