@@ -1,3 +1,9 @@
+# Build output
 build/
+cmake-build-*/
 
+# IDE / editor state
 .qtcreator/
+
+# macOS
+.DS_Store
