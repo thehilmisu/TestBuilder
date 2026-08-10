@@ -28,8 +28,11 @@ const QColor kMutedColor(0x9b, 0xa5, 0xb6);
 const QColor kSelectionColor(0xf2, 0xa8, 0x54);
 }
 
+QAtomicInteger<quint64> NodeItem::nextId{1};
+
 NodeItem::NodeItem(const BlockType *blockType, QGraphicsItem *parent)
     : QGraphicsItem(parent)
+    , m_id(nextId.fetchAndAddAcquire(1))
     , m_type(blockType)
     , m_title(blockType->title)
 {

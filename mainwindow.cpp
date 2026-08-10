@@ -5,6 +5,7 @@
 #include "nodeeditor/nodeitem.h"
 #include "nodeeditor/nodescene.h"
 #include "nodeeditor/nodeview.h"
+#include "scenarioio.h"
 #include "nodeeditor/portitem.h"
 #include "nodeeditor/propertypanel.h"
 
@@ -37,6 +38,8 @@ void MainWindow::buildUi()
 {
     m_scene = new NodeScene(this);
     m_view = new NodeView(m_scene, this);
+    m_scenarioIO = new ScenarioIO();
+
     setCentralWidget(m_view);
 
     m_palette = new BlockPalette(this);
@@ -74,7 +77,7 @@ void MainWindow::buildUi()
 
 void MainWindow::buildActions()
 {
-    auto *newAction = new QAction(tr("&New Scenario"), this);
+    auto *newAction = new QAction(tr("&New Test"), this);
     newAction->setShortcut(QKeySequence::New);
     connect(newAction, &QAction::triggered, this, [this] {
         m_scene->clearGraph();
@@ -105,9 +108,16 @@ void MainWindow::buildActions()
     resetZoomAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_0));
     connect(resetZoomAction, &QAction::triggered, m_view, &NodeView::resetZoom);
 
-    auto *fitAction = new QAction(tr("&Fit Scenario"), this);
+    auto *fitAction = new QAction(tr("&Fit to Screen"), this);
     fitAction->setShortcut(QKeySequence(Qt::Key_F));
     connect(fitAction, &QAction::triggered, m_view, &NodeView::fitGraphInView);
+
+    auto *exportAction = new QAction(tr("&Export"), this);
+    exportAction->setShortcut(QKeySequence(Qt::Key_E));
+    connect(exportAction, &QAction::triggered, this, [this] {
+        // pass the scene to the IO; `this` parents the file dialog to the window
+        m_scenarioIO->exportScenario(m_scene, this);
+    });
 
     QMenu *fileMenu = menuBar()->addMenu(tr("&File"));
     fileMenu->addAction(newAction);
@@ -133,6 +143,7 @@ void MainWindow::buildActions()
     toolBar->addAction(zoomOutAction);
     toolBar->addAction(resetZoomAction);
     toolBar->addAction(fitAction);
+    toolBar->addAction(exportAction);
 }
 
 void MainWindow::createSampleScenario()
@@ -149,9 +160,10 @@ void MainWindow::createSampleScenario()
     fail->setTitle(tr("End (failed)"));
     fail->setParam(QStringLiteral("verdict"), QStringLiteral("Fail"));
 
-
+    m_scene->connectPorts(start->outputs().at(0), check->inputs().at(0));
     m_scene->connectPorts(check->outputs().at(0), pass->inputs().at(0));
     m_scene->connectPorts(check->outputs().at(1), fail->inputs().at(0));
+
 
     m_view->fitGraphInView();
 }

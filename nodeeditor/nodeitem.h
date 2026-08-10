@@ -7,6 +7,7 @@
 #include <QGraphicsItem>
 #include <QVariantMap>
 #include <QVector>
+#include <QAtomicInteger>
 
 namespace nodeeditor {
 
@@ -20,6 +21,35 @@ public:
     enum { Type = UserType + 3 };
 
     explicit NodeItem(const BlockType *blockType, QGraphicsItem *parent = nullptr);
+    // Copy constructor – generates a NEW ID (the copy is a new instantiation)
+    NodeItem(const NodeItem& other)
+        : m_id(nextId.fetchAndAddAcquire(1)) {
+        // Copy other member data here
+    }
+
+    // Move constructor – also generates a NEW ID
+    NodeItem(NodeItem&& other) noexcept
+        : m_id(nextId.fetchAndAddAcquire(1)) {
+        // Steal resources, keep new ID
+    }
+
+    // Copy-assignment – ID stays unchanged (object already exists)
+    NodeItem& operator=(const NodeItem& other) {
+        if (this != &other) {
+            // Copy other data, but DO NOT modify m_id
+        }
+        return *this;
+    }
+
+    // Move-assignment – ID stays unchanged
+    NodeItem& operator=(NodeItem&& other) noexcept {
+        if (this != &other) {
+            // Steal other's resources, keep this->m_id
+        }
+        return *this;
+    }
+
+    quint64 getId() const { return m_id; }
 
     int type() const override { return Type; }
     QRectF boundingRect() const override;
@@ -45,6 +75,9 @@ protected:
     QVariant itemChange(GraphicsItemChange change, const QVariant &value) override;
 
 private:
+    static QAtomicInteger<quint64> nextId;  // quint64 prevents overflow
+    quint64 m_id;
+
     void buildPorts();
     void relayout();
     QStringList summaryLines() const;

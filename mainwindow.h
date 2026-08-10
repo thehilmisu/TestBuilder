@@ -8,6 +8,7 @@ class BlockPalette;
 class NodeScene;
 class NodeView;
 class PropertyPanel;
+class ScenarioIO;
 }
 
 class MainWindow : public QMainWindow
@@ -28,6 +29,7 @@ private:
     nodeeditor::NodeView *m_view = nullptr;
     nodeeditor::BlockPalette *m_palette = nullptr;
     nodeeditor::PropertyPanel *m_properties = nullptr;
+    nodeeditor::ScenarioIO *m_scenarioIO = nullptr;
 };
 
 #endif // MAINWINDOW_H
