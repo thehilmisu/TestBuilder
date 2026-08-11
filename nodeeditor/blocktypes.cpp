@@ -94,21 +94,25 @@ QVector<BlockType> makeBlocks()
                     text(QStringLiteral("value"), QStringLiteral("Value"), QStringLiteral("0")),};
         list.append(b);
     }
-    // {
-    //     BlockType b;
-    //     b.id = QStringLiteral("actuator_move");
-    //     b.title = QStringLiteral("Move Actuator");
-    //     b.category = QStringLiteral("Actuator");
-    //     b.description = QStringLiteral("Commands a target position and optionally waits.");
-    //     b.accent = kActuator;
-    //     b.inputs = {{QStringLiteral("in")}};
-    //     b.outputs = {{QStringLiteral("out")}};
-    //     b.params = {text(QStringLiteral("actuator"), QStringLiteral("Actuator"), QStringLiteral("ACT_1")),
-    //                 integer(QStringLiteral("position"), QStringLiteral("Position"), 0, -32768, 32767),
-    //                 integer(QStringLiteral("speed"), QStringLiteral("Speed"), 50, 0, 100, QStringLiteral(" %")),
-    //                 boolean(QStringLiteral("waitReached"), QStringLiteral("Wait until reached"), true)};
-    //     list.append(b);
-    // }
+    {
+        BlockType b;
+        b.id = QStringLiteral("reques_diagnostic");
+        b.title = QStringLiteral("Request Diagnostic");
+        b.category = QStringLiteral("LIN Bus");
+        b.description = QStringLiteral("Request Diagnostics from Device");
+        b.accent = kBus;
+        b.inputs = {{QStringLiteral("in")}};
+        b.outputs = {{QStringLiteral("out")}};
+        b.params = {
+                    choice(
+                            QStringLiteral("param"), QStringLiteral("Parameter"),
+                            {
+                                QStringLiteral("Last Traveled Angle"), QStringLiteral("Chip Temperature"), QStringLiteral("Input Voltage"),
+                                QStringLiteral("Over-Travel Counter"), QStringLiteral("Blockage Counter"), QStringLiteral("Electrical Error Counter")
+                            }),
+                   };
+        list.append(b);
+    }
     {
         BlockType b;
         b.id = QStringLiteral("expect_signal");
