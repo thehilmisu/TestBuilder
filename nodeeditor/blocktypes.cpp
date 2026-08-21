@@ -110,7 +110,39 @@ QVector<BlockType> makeBlocks()
                                 QStringLiteral("Last Traveled Angle"), QStringLiteral("Chip Temperature"), QStringLiteral("Input Voltage"),
                                 QStringLiteral("Over-Travel Counter"), QStringLiteral("Blockage Counter"), QStringLiteral("Electrical Error Counter")
                             }),
+                    integer(QStringLiteral("timeoutMs"), QStringLiteral("Response timeout"), 200, 1,
+                            60000, QStringLiteral(" ms")),
                    };
+        list.append(b);
+    }
+    {
+        BlockType b;
+        b.id = QStringLiteral("send_frame");
+        b.title = QStringLiteral("Send Frame");
+        b.category = QStringLiteral("LIN Bus");
+        b.description = QStringLiteral("Publishes one unconditional frame on the bus.");
+        b.accent = kBus;
+        b.inputs = {{QStringLiteral("in")}};
+        b.outputs = {{QStringLiteral("out")}};
+        b.params = {integer(QStringLiteral("frameId"), QStringLiteral("Frame ID"), 0, 0, 63),
+                    text(QStringLiteral("data"), QStringLiteral("Data (hex)"),
+                         QStringLiteral("00 00 00 00"))};
+        list.append(b);
+    }
+    {
+        BlockType b;
+        b.id = QStringLiteral("expect_frame");
+        b.title = QStringLiteral("Expect Frame");
+        b.category = QStringLiteral("LIN Bus");
+        b.description = QStringLiteral("Waits for a frame with the given ID. Leave Data empty to "
+                                       "accept any payload.");
+        b.accent = kBus;
+        b.inputs = {{QStringLiteral("in")}};
+        b.outputs = {{QStringLiteral("received")}, {QStringLiteral("timeout")}};
+        b.params = {integer(QStringLiteral("frameId"), QStringLiteral("Frame ID"), 0, 0, 63),
+                    text(QStringLiteral("data"), QStringLiteral("Data (hex)"), QString()),
+                    integer(QStringLiteral("timeoutMs"), QStringLiteral("Timeout"), 200, 1, 60000,
+                            QStringLiteral(" ms"))};
         list.append(b);
     }
     {

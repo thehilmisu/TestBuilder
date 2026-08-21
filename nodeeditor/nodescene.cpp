@@ -55,10 +55,16 @@ ConnectionItem *NodeScene::connectPorts(PortItem *a, PortItem *b)
     PortItem *from = a->isOutput() ? a : b;
     PortItem *to = a->isOutput() ? b : a;
 
-    // An input takes a single incoming link; a new one replaces the old.
-    const QVector<ConnectionItem *> existing = to->connections();
-    for (ConnectionItem *c : existing)
-        removeConnection(c);
+    // Inputs accept fan-in. Several branches converging on one block is how a
+    // loop is drawn -- a Repeat's body has to come back into the same input the
+    // scenario entered through -- and how two paths rejoin after a check.
+    // Outputs stay single: a block leaves through exactly one wire per port,
+    // which is what makes the run deterministic.
+    if (from->isConnected()) {
+        const QVector<ConnectionItem *> existing = from->connections();
+        for (ConnectionItem *c : existing)
+            removeConnection(c);
+    }
 
     auto *connection = new ConnectionItem;
     addItem(connection);
@@ -205,8 +211,10 @@ void NodeScene::mousePressEvent(QGraphicsSceneMouseEvent *event)
     if (event->button() == Qt::LeftButton) {
         if (PortItem *port = portAt(event->scenePos())) {
             if (port->isInput() && port->isConnected()) {
-                // Grabbing a wired input unplugs the link so it can be re-routed.
-                ConnectionItem *existing = port->connections().first();
+                // Grabbing a wired input unplugs a link so it can be re-routed.
+                // With fan-in there may be several; the newest is the one the
+                // user most likely just drew and wants to move.
+                ConnectionItem *existing = port->connections().last();
                 if (PortItem *origin = existing->source()) {
                     m_dragStartPort = origin;
                     m_pendingConnection = existing;

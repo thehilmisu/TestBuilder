@@ -20,6 +20,10 @@ class NodeItem : public QGraphicsItem
 public:
     enum { Type = UserType + 3 };
 
+    // Where the runner currently is. Drawn as a coloured halo so a run can be
+    // followed on the canvas; purely cosmetic and never serialized.
+    enum class RunState { Idle, Active, Visited, Failed };
+
     explicit NodeItem(const BlockType *blockType, QGraphicsItem *parent = nullptr);
     // Copy constructor – generates a NEW ID (the copy is a new instantiation)
     NodeItem(const NodeItem& other)
@@ -51,6 +55,10 @@ public:
 
     quint64 getId() const { return m_id; }
 
+    // Only for the loader, which has to restore the ids the links refer to.
+    // Pushes the shared counter past `id` so later blocks never collide with it.
+    void setId(quint64 id);
+
     int type() const override { return Type; }
     QRectF boundingRect() const override;
     QPainterPath shape() const override;
@@ -66,6 +74,9 @@ public:
     QVariant param(const QString &key) const { return m_params.value(key); }
     const QVariantMap &params() const { return m_params; }
     void setParam(const QString &key, const QVariant &value);
+
+    RunState runState() const { return m_runState; }
+    void setRunState(RunState state);
 
     const QVector<PortItem *> &inputs() const { return m_inputs; }
     const QVector<PortItem *> &outputs() const { return m_outputs; }
@@ -83,6 +94,7 @@ private:
     QStringList summaryLines() const;
 
     const BlockType *m_type;
+    RunState m_runState = RunState::Idle;
     QString m_title;
     QVariantMap m_params;
     QVector<PortItem *> m_inputs;

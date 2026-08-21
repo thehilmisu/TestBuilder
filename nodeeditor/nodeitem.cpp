@@ -30,6 +30,16 @@ const QColor kSelectionColor(0xf2, 0xa8, 0x54);
 
 QAtomicInteger<quint64> NodeItem::nextId{1};
 
+void NodeItem::setId(quint64 id)
+{
+    m_id = id;
+    // Never hand out an id at or below one already in use: a block dropped
+    // after a load would otherwise take the id of a block from the file.
+    quint64 expected = nextId.loadAcquire();
+    while (expected <= id && !nextId.testAndSetOrdered(expected, id + 1))
+        expected = nextId.loadAcquire();
+}
+
 NodeItem::NodeItem(const BlockType *blockType, QGraphicsItem *parent)
     : QGraphicsItem(parent)
     , m_id(nextId.fetchAndAddAcquire(1))
@@ -73,6 +83,14 @@ void NodeItem::setTitle(const QString &title)
         return;
     m_title = title;
     relayout();
+}
+
+void NodeItem::setRunState(RunState state)
+{
+    if (m_runState == state)
+        return;
+    m_runState = state;
+    update();
 }
 
 void NodeItem::setParam(const QString &key, const QVariant &value)
@@ -150,7 +168,9 @@ void NodeItem::relayout()
 
 QRectF NodeItem::boundingRect() const
 {
-    return QRectF(0, 0, m_width, m_height).adjusted(-2, -2, 2, 2);
+    // -6 rather than -2: the run halo is drawn 3px outside the body with a 3px
+    // pen, and anything outside boundingRect() leaves artefacts when it moves.
+    return QRectF(0, 0, m_width, m_height).adjusted(-6, -6, 6, 6);
 }
 
 QPainterPath NodeItem::shape() const
@@ -177,6 +197,26 @@ void NodeItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidge
     QPainterPath headerClip;
     headerClip.addRect(QRectF(0, 0, m_width, kHeaderHeight));
     painter->fillPath(header.intersected(headerClip), m_type->accent);
+
+    // The run halo sits outside the border so it reads even on a selected node.
+    if (m_runState != RunState::Idle) {
+        static const QColor kActiveColor(0x4f, 0xc3, 0xf7);
+        static const QColor kVisitedColor(0x3d, 0x6b, 0x55);
+        static const QColor kFailedColor(0xd6, 0x4b, 0x4b);
+
+        QColor halo = kVisitedColor;
+        qreal haloWidth = 2.0;
+        if (m_runState == RunState::Active) {
+            halo = kActiveColor;
+            haloWidth = 3.0;
+        } else if (m_runState == RunState::Failed) {
+            halo = kFailedColor;
+            haloWidth = 3.0;
+        }
+        painter->setPen(QPen(halo, haloWidth));
+        painter->setBrush(Qt::NoBrush);
+        painter->drawRoundedRect(rect.adjusted(-3, -3, 3, 3), kCornerRadius + 3, kCornerRadius + 3);
+    }
 
     painter->setPen(QPen(isSelected() ? kSelectionColor : kBorderColor, isSelected() ? 2.0 : 1.0));
     painter->setBrush(Qt::NoBrush);

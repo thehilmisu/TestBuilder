@@ -33,6 +33,14 @@ set(PROJECT_SOURCES
         nodeeditor/blockpalette.cpp
         nodeeditor/propertypanel.h
         nodeeditor/propertypanel.cpp
+        runtime/lintransport.h
+        runtime/lintransport.cpp
+        runtime/scenariomodel.h
+        runtime/scenariomodel.cpp
+        runtime/scenariorunner.h
+        runtime/scenariorunner.cpp
+        runpanel.h
+        runpanel.cpp
 )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
@@ -60,6 +68,9 @@ else()
 endif()
 
 target_link_libraries(TestBuilder PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
+
+# The runtime layer includes "runtime/..." and "nodeeditor/..." from the root.
+target_include_directories(TestBuilder PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.
 # If you are developing for iOS or macOS you should consider setting an
