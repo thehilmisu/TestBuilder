@@ -6,12 +6,12 @@
 
 #include <cmath>
 
-namespace runtime {
+namespace testbuilder {
 
 namespace {
 
 // Block params are stored as text so the property panel can stay a plain line
-// edit. Anything that looks like a number is compared as one.
+// edit. Anything that looks like a number is passed on as one.
 QVariant numericOrText(const QVariant &value)
 {
     if (value.typeId() == QMetaType::Int || value.typeId() == QMetaType::Double)
@@ -28,8 +28,8 @@ QVariant numericOrText(const QVariant &value)
     return QVariant(number);
 }
 
-// "01 02 FF", "0102ff" and "01:02:FF" all parse. Returns false on odd digits
-// or non-hex characters, so a typo is reported instead of silently truncated.
+// "01 02 FF", "0102ff" and "01:02:FF" all parse. Returns false on odd digits or
+// non-hex characters, so a typo is reported instead of silently truncated.
 bool parseHexPayload(const QString &text, QByteArray *out)
 {
     QString cleaned = text;
@@ -55,6 +55,11 @@ bool parseHexPayload(const QString &text, QByteArray *out)
 QString formatValue(const QVariant &value)
 {
     return value.isValid() ? value.toString() : QStringLiteral("<none>");
+}
+
+QString formatId(int id)
+{
+    return QStringLiteral("0x%1").arg(id, 2, 16, QLatin1Char('0'));
 }
 
 // Applies `op` with a symmetric tolerance band around the expected value.
@@ -117,11 +122,9 @@ ScenarioRunner::Outcome ScenarioRunner::Outcome::fault(const QString &message)
 ScenarioRunner::ScenarioRunner(QObject *parent)
     : QObject(parent)
 {
-    qRegisterMetaType<runtime::LinFrame>();
-    qRegisterMetaType<runtime::DiagResponse>();
-    qRegisterMetaType<runtime::ScenarioRunner::LogEntry>();
-    qRegisterMetaType<runtime::ScenarioRunner::State>();
-    qRegisterMetaType<runtime::ScenarioRunner::Verdict>();
+    qRegisterMetaType<testbuilder::ScenarioRunner::LogEntry>();
+    qRegisterMetaType<testbuilder::ScenarioRunner::State>();
+    qRegisterMetaType<testbuilder::ScenarioRunner::Verdict>();
 
     m_stepTimer = new QTimer(this);
     m_stepTimer->setSingleShot(true);
@@ -132,20 +135,21 @@ ScenarioRunner::ScenarioRunner(QObject *parent)
 
 ScenarioRunner::~ScenarioRunner() = default;
 
-void ScenarioRunner::setTransport(LinTransport *transport)
+void ScenarioRunner::setBackend(ScenarioBackend *backend)
 {
-    if (m_transport == transport)
+    if (m_backend == backend)
         return;
 
-    if (m_transport)
-        m_transport->disconnect(this);
+    if (m_backend)
+        m_backend->disconnect(this);
 
-    m_transport = transport;
+    m_backend = backend;
 
-    if (m_transport) {
-        connect(m_transport, &LinTransport::slaveResponse, this, &ScenarioRunner::onSlaveResponse);
-        connect(m_transport, &LinTransport::frameReceived, this, &ScenarioRunner::onFrameReceived);
-        connect(m_transport, &LinTransport::transportError, this, &ScenarioRunner::onTransportError);
+    if (m_backend) {
+        connect(m_backend, &ScenarioBackend::valueReceived, this, &ScenarioRunner::onValueReceived);
+        connect(m_backend, &ScenarioBackend::requestFailed, this, &ScenarioRunner::onRequestFailed);
+        connect(m_backend, &ScenarioBackend::messageReceived, this, &ScenarioRunner::onMessageReceived);
+        connect(m_backend, &ScenarioBackend::backendError, this, &ScenarioRunner::onBackendError);
     }
 }
 
@@ -198,57 +202,48 @@ void ScenarioRunner::logMessage(LogLevel level, const QString &text, quint64 nod
 
 // --- parking the machine ---------------------------------------------------
 
+void ScenarioRunner::armAwait(Await::What what, const QString &resumePort,
+                              const QString &timeoutPort, int timeoutMs)
+{
+    clearAwait();
+    m_await.what = what;
+    m_await.nodeId = m_current;
+    m_await.resumePort = resumePort;
+    m_await.timeoutPort = timeoutPort;
+
+    const int generation = m_await.generation;
+    QTimer::singleShot(qMax(0, timeoutMs), this, [this, generation] {
+        if (m_await.generation != generation || m_await.resolved)
+            return;
+        if (m_await.what == Await::What::Timer)
+            queueResume(m_await.resumePort);
+        else
+            handleAwaitTimeout();
+    });
+}
+
 ScenarioRunner::Outcome ScenarioRunner::awaitTimer(int milliseconds, const QString &resumePort)
 {
-    clearAwait();
-    m_await.what = Await::What::Timer;
-    m_await.nodeId = m_current;
-    m_await.resumePort = resumePort;
-
-    const int generation = m_await.generation;
-    QTimer::singleShot(qMax(0, milliseconds), this, [this, generation] {
-        if (m_await.generation == generation && m_await.what == Await::What::Timer)
-            resumeFromAwait(m_await.resumePort);
-    });
+    armAwait(Await::What::Timer, resumePort, QString(), milliseconds);
     return Outcome::await();
 }
 
-ScenarioRunner::Outcome ScenarioRunner::awaitSlaveResponse(const QString &parameter, int timeoutMs,
-                                                           const QString &resumePort,
-                                                           const QString &timeoutPort)
-{
-    clearAwait();
-    m_await.what = Await::What::SlaveResponse;
-    m_await.parameter = parameter;
-    m_await.nodeId = m_current;
-    m_await.resumePort = resumePort;
-    m_await.timeoutPort = timeoutPort;
-
-    const int generation = m_await.generation;
-    QTimer::singleShot(qMax(1, timeoutMs), this, [this, generation] {
-        if (m_await.generation == generation)
-            handleAwaitTimeout();
-    });
-    return Outcome::await();
-}
-
-ScenarioRunner::Outcome ScenarioRunner::awaitFrame(int frameId, const QByteArray &expectedData,
-                                                   int timeoutMs, const QString &resumePort,
+ScenarioRunner::Outcome ScenarioRunner::awaitValue(const QString &name, int timeoutMs,
+                                                   const QString &resumePort,
                                                    const QString &timeoutPort)
 {
-    clearAwait();
-    m_await.what = Await::What::Frame;
-    m_await.frameId = frameId;
-    m_await.expectedData = expectedData;
-    m_await.nodeId = m_current;
-    m_await.resumePort = resumePort;
-    m_await.timeoutPort = timeoutPort;
+    armAwait(Await::What::Value, resumePort, timeoutPort, qMax(1, timeoutMs));
+    m_await.name = name;
+    return Outcome::await();
+}
 
-    const int generation = m_await.generation;
-    QTimer::singleShot(qMax(1, timeoutMs), this, [this, generation] {
-        if (m_await.generation == generation)
-            handleAwaitTimeout();
-    });
+ScenarioRunner::Outcome ScenarioRunner::awaitMessage(int messageId, const QByteArray &expectedData,
+                                                     int timeoutMs, const QString &resumePort,
+                                                     const QString &timeoutPort)
+{
+    armAwait(Await::What::Message, resumePort, timeoutPort, qMax(1, timeoutMs));
+    m_await.messageId = messageId;
+    m_await.expectedData = expectedData;
     return Outcome::await();
 }
 
@@ -261,28 +256,45 @@ void ScenarioRunner::clearAwait()
     m_await.generation = generation;
 }
 
+// A backend is allowed to answer from inside the call that asked -- a cached
+// value, a synchronous API. The handler has not returned yet at that point, so
+// the machine is not in Waiting and cannot resume. Deferring by one event loop
+// turn makes both timings take the same path.
+void ScenarioRunner::queueResume(const QString &port)
+{
+    if (m_await.resolved)
+        return;
+    m_await.resolved = true;
+
+    const int generation = m_await.generation;
+    QTimer::singleShot(0, this, [this, generation, port] {
+        if (m_await.generation == generation)
+            resumeFromAwait(port);
+    });
+}
+
 void ScenarioRunner::handleAwaitTimeout()
 {
-    if (m_state != State::Waiting || m_await.what == Await::What::Nothing)
+    if (m_await.what == Await::What::Nothing || m_await.resolved)
         return;
 
-    const QString what = m_await.what == Await::What::SlaveResponse
-                             ? QStringLiteral("slave response for '%1'").arg(m_await.parameter)
-                             : QStringLiteral("frame 0x%1").arg(m_await.frameId, 2, 16, QLatin1Char('0'));
+    const QString what = m_await.what == Await::What::Value
+                             ? QStringLiteral("'%1'").arg(m_await.name)
+                             : QStringLiteral("message %1").arg(formatId(m_await.messageId));
 
     // A branch wired for it turns the timeout into part of the test; without
-    // one, the device did not answer and the scenario failed.
+    // one, nothing answered and the scenario failed.
     if (!m_await.timeoutPort.isEmpty()) {
         logMessage(LogLevel::Warning, QStringLiteral("Timed out waiting for %1.").arg(what),
                    m_await.nodeId);
-        resumeFromAwait(m_await.timeoutPort);
+        queueResume(m_await.timeoutPort);
         return;
     }
 
     const quint64 nodeId = m_await.nodeId;
     clearAwait();
     logMessage(LogLevel::Error, QStringLiteral("Timed out waiting for %1.").arg(what), nodeId);
-    finish(Verdict::Fail, QStringLiteral("No %1.").arg(what));
+    finish(Verdict::Fail, QStringLiteral("Nothing answered for %1.").arg(what));
 }
 
 void ScenarioRunner::resumeFromAwait(const QString &port)
@@ -304,74 +316,62 @@ void ScenarioRunner::resumeFromAwait(const QString &port)
     leaveVia(*node, resumePort);
 }
 
-// --- transport events ------------------------------------------------------
+// --- backend events --------------------------------------------------------
 
-void ScenarioRunner::onSlaveResponse(const DiagResponse &response)
+void ScenarioRunner::onValueReceived(const QString &name, const QVariant &value)
 {
-    if (m_state != State::Waiting || m_await.what != Await::What::SlaveResponse)
-        return; // unsolicited traffic, or we are waiting on something else
+    // Values are remembered whenever they arrive, solicited or not, so an
+    // Expect Signal later in the run can compare against the freshest one.
+    if (value.isValid())
+        setContextValue(name, value);
 
-    // A transport that labels its responses lets us ignore one that belongs to
-    // an earlier request; one that does not is taken at face value.
-    if (!m_await.parameter.isEmpty() && !response.parameter.isEmpty()
-        && response.parameter != m_await.parameter) {
+    if (m_await.what != Await::What::Value || m_await.resolved)
         return;
-    }
+    if (!m_await.name.isEmpty() && name != m_await.name)
+        return; // an answer to some earlier request
 
-    const quint64 nodeId = m_await.nodeId;
-    const QString parameter = m_await.parameter;
-
-    if (response.negative) {
-        clearAwait();
-        logMessage(LogLevel::Error,
-                   QStringLiteral("Negative response for '%1' (NRC 0x%2).")
-                       .arg(parameter).arg(response.responseCode, 2, 16, QLatin1Char('0')),
-                   nodeId);
-        finish(Verdict::Fail, QStringLiteral("Slave rejected the request for '%1'.").arg(parameter));
-        return;
-    }
-
-    if (response.value.isValid()) {
-        // Park it under the parameter name so a following Expect Signal block
-        // asking for "Chip Temperature" reads the response instead of the bus.
-        setContextValue(parameter, response.value);
-        logMessage(LogLevel::Info,
-                   QStringLiteral("Response: %1 = %2").arg(parameter, formatValue(response.value)),
-                   nodeId);
-    } else {
-        logMessage(LogLevel::Info,
-                   QStringLiteral("Response: %1 (%2 bytes)")
-                       .arg(parameter).arg(response.data.size()),
-                   nodeId);
-    }
-
-    resumeFromAwait(m_await.resumePort);
+    logMessage(LogLevel::Info, QStringLiteral("Received %1 = %2").arg(name, formatValue(value)),
+               m_await.nodeId);
+    queueResume(m_await.resumePort);
 }
 
-void ScenarioRunner::onFrameReceived(const LinFrame &frame)
+void ScenarioRunner::onRequestFailed(const QString &name, const QString &reason)
 {
-    if (m_state != State::Waiting || m_await.what != Await::What::Frame)
+    if (m_await.what != Await::What::Value || m_await.resolved)
         return;
-    if (m_await.frameId >= 0 && int(frame.id) != m_await.frameId)
+    if (!m_await.name.isEmpty() && name != m_await.name)
         return;
-    if (!m_await.expectedData.isEmpty() && frame.data != m_await.expectedData)
+
+    const quint64 nodeId = m_await.nodeId;
+    clearAwait();
+    logMessage(LogLevel::Error, QStringLiteral("Request for '%1' was refused: %2").arg(name, reason),
+               nodeId);
+    // The other side saying no is a test result, not a tool malfunction.
+    finish(Verdict::Fail, QStringLiteral("Request for '%1' was refused.").arg(name));
+}
+
+void ScenarioRunner::onMessageReceived(int id, const QByteArray &data)
+{
+    if (m_await.what != Await::What::Message || m_await.resolved)
+        return;
+    if (m_await.messageId >= 0 && id != m_await.messageId)
+        return;
+    if (!m_await.expectedData.isEmpty() && data != m_await.expectedData)
         return;
 
     logMessage(LogLevel::Info,
-               QStringLiteral("Frame 0x%1 received: %2")
-                   .arg(frame.id, 2, 16, QLatin1Char('0'))
-                   .arg(QString::fromLatin1(frame.data.toHex(' '))),
+               QStringLiteral("Received %1: %2")
+                   .arg(formatId(id), QString::fromLatin1(data.toHex(' '))),
                m_await.nodeId);
-
-    resumeFromAwait(m_await.resumePort);
+    queueResume(m_await.resumePort);
 }
 
-void ScenarioRunner::onTransportError(const QString &message)
+void ScenarioRunner::onBackendError(const QString &reason)
 {
     if (!isRunning())
         return;
-    logMessage(LogLevel::Error, QStringLiteral("Transport error: %1").arg(message), m_current);
-    finish(Verdict::Error, message);
+    logMessage(LogLevel::Error, QStringLiteral("Backend error: %1").arg(reason), m_current);
+    finish(Verdict::Error, reason);
 }
 
 // --- the machine -----------------------------------------------------------
@@ -392,10 +392,10 @@ void ScenarioRunner::start()
         return;
     }
 
-    if (m_transport && !m_transport->isOpen()) {
+    if (m_backend && !m_backend->isOpen()) {
         QString error;
-        if (!m_transport->open(&error)) {
-            finish(Verdict::Error, QStringLiteral("Could not open the LIN transport: %1").arg(error));
+        if (!m_backend->open(&error)) {
+            finish(Verdict::Error, QStringLiteral("Could not open the backend: %1").arg(error));
             return;
         }
     }
@@ -413,9 +413,9 @@ void ScenarioRunner::start()
     setState(State::Running);
     emit started();
 
-    if (!m_transport) {
+    if (!m_backend) {
         logMessage(LogLevel::Warning,
-                   QStringLiteral("No LIN transport is set; bus blocks will fault."));
+                   QStringLiteral("No backend is set; every block that talks to one will fault."));
     }
     logMessage(LogLevel::Info, QStringLiteral("Running '%1'.")
                                    .arg(m_model.name().isEmpty() ? QStringLiteral("Untitled")
@@ -604,7 +604,6 @@ ScenarioRunner::Outcome ScenarioRunner::enterRepeat(const ScenarioNode &node)
     return Outcome::follow(QStringLiteral("body"));
 }
 
-
 void ScenarioRunner::installDefaultHandlers()
 {
     m_handlers.insert(QStringLiteral("start"), [](ScenarioRunner *, const ScenarioNode &) {
@@ -626,68 +625,64 @@ void ScenarioRunner::installDefaultHandlers()
     });
 
     m_handlers.insert(QStringLiteral("set_signal"), [](ScenarioRunner *runner, const ScenarioNode &node) {
-        LinTransport *transport = runner->transport();
-        if (!transport)
-            return Outcome::fault(QStringLiteral("Set Signal needs a LIN transport."));
+        ScenarioBackend *backend = runner->backend();
+        if (!backend)
+            return Outcome::fault(QStringLiteral("Set Signal needs a backend."));
 
-        const QString signal = node.params.value(QStringLiteral("signal")).toString();
+        const QString name = node.params.value(QStringLiteral("signal")).toString();
         const QVariant value = numericOrText(node.params.value(QStringLiteral("value")));
 
         QString error;
-        if (!transport->writeSignal(signal, value, &error)) {
-            return Outcome::fault(QStringLiteral("Could not write '%1': %2").arg(signal, error));
-        }
+        if (!backend->writeValue(name, value, &error))
+            return Outcome::fault(QStringLiteral("Could not write '%1': %2").arg(name, error));
 
         runner->logMessage(LogLevel::Info,
-                           QStringLiteral("Set %1 = %2").arg(signal, formatValue(value)), node.id);
+                           QStringLiteral("Set %1 = %2").arg(name, formatValue(value)), node.id);
         return Outcome::follow(QStringLiteral("out"));
     });
 
     // The block id carries a typo ("reques_diagnostic"); it is what is written
     // into saved scenarios, so it stays until a format migration renames it.
-    m_handlers.insert(QStringLiteral("reques_diagnostic"), [](ScenarioRunner *runner, const ScenarioNode &node) {
-        LinTransport *transport = runner->transport();
-        if (!transport)
-            return Outcome::fault(QStringLiteral("Request Diagnostic needs a LIN transport."));
+    m_handlers.insert(QStringLiteral("request_diagnostic"), [](ScenarioRunner *runner, const ScenarioNode &node) {
+        ScenarioBackend *backend = runner->backend();
+        if (!backend)
+            return Outcome::fault(QStringLiteral("Request Diagnostic needs a backend."));
 
-        const QString parameter = node.params.value(QStringLiteral("param")).toString();
+        const QString name = node.params.value(QStringLiteral("param")).toString();
         const int timeoutMs = node.params.value(QStringLiteral("timeoutMs"), 200).toInt();
 
-        const DiagRequest request = transport->buildParameterRequest(parameter);
+        // Arm the wait first: a backend that answers synchronously from inside
+        // requestValue() is then still matched instead of arriving too early.
+        const Outcome outcome = runner->awaitValue(name, timeoutMs, QStringLiteral("out"));
+        runner->logMessage(LogLevel::Info, QStringLiteral("Requested '%1'.").arg(name), node.id);
+
         QString error;
-        if (!transport->sendMasterRequest(request, &error))
-            return Outcome::fault(QStringLiteral("Master request failed: %1").arg(error));
+        if (!backend->requestValue(name, &error))
+            return Outcome::fault(QStringLiteral("Could not request '%1': %2").arg(name, error));
 
-        runner->logMessage(LogLevel::Info,
-                           QStringLiteral("Master request: %1 (NAD 0x%2, SID 0x%3)")
-                               .arg(parameter)
-                               .arg(request.nad, 2, 16, QLatin1Char('0'))
-                               .arg(request.sid, 2, 16, QLatin1Char('0')),
-                           node.id);
-
-        return runner->awaitSlaveResponse(parameter, timeoutMs, QStringLiteral("out"));
+        return outcome;
     });
 
     m_handlers.insert(QStringLiteral("expect_signal"), [](ScenarioRunner *runner, const ScenarioNode &node) {
-        const QString signal = node.params.value(QStringLiteral("signal")).toString();
+        const QString name = node.params.value(QStringLiteral("signal")).toString();
         const QString op = node.params.value(QStringLiteral("op")).toString();
         const QString expectedText = node.params.value(QStringLiteral("value")).toString();
         const double tolerance = node.params.value(QStringLiteral("tolerance")).toDouble();
 
         QVariant actual;
-        if (runner->hasContextValue(signal)) {
-            // A diagnostic response recorded earlier in this run wins over the
-            // bus: it is what the block just asked for.
-            actual = runner->contextValue(signal);
+        if (runner->hasContextValue(name)) {
+            // A value the backend delivered earlier in this run wins over a
+            // fresh read: it is what the preceding block just asked for.
+            actual = runner->contextValue(name);
         } else {
-            LinTransport *transport = runner->transport();
-            if (!transport)
-                return Outcome::fault(QStringLiteral("Expect Signal needs a LIN transport."));
+            ScenarioBackend *backend = runner->backend();
+            if (!backend)
+                return Outcome::fault(QStringLiteral("Expect Signal needs a backend."));
 
             QString error;
-            if (!transport->readSignal(signal, &actual, &error)) {
+            if (!backend->readValue(name, &actual, &error)) {
                 runner->logMessage(LogLevel::Warning,
-                                   QStringLiteral("Could not read '%1': %2").arg(signal, error),
+                                   QStringLiteral("Could not read '%1': %2").arg(name, error),
                                    node.id);
                 return Outcome::follow(QStringLiteral("fail"));
             }
@@ -713,7 +708,7 @@ void ScenarioRunner::installDefaultHandlers()
 
         runner->logMessage(passed ? LogLevel::Info : LogLevel::Warning,
                            QStringLiteral("Expect %1 %2 %3%4 -> %5 (actual %6)")
-                               .arg(signal, op, expectedText,
+                               .arg(name, op, expectedText,
                                     tolerance > 0 ? QStringLiteral(" +/-%1").arg(tolerance)
                                                   : QString(),
                                     passed ? QStringLiteral("pass") : QStringLiteral("fail"),
@@ -748,35 +743,32 @@ void ScenarioRunner::installDefaultHandlers()
     });
 
     m_handlers.insert(QStringLiteral("send_frame"), [](ScenarioRunner *runner, const ScenarioNode &node) {
-        LinTransport *transport = runner->transport();
-        if (!transport)
-            return Outcome::fault(QStringLiteral("Send Frame needs a LIN transport."));
+        ScenarioBackend *backend = runner->backend();
+        if (!backend)
+            return Outcome::fault(QStringLiteral("Send Frame needs a backend."));
 
-        LinFrame frame;
-        frame.id = quint8(node.params.value(QStringLiteral("frameId")).toInt());
+        const int id = node.params.value(QStringLiteral("frameId")).toInt();
         const QString payload = node.params.value(QStringLiteral("data")).toString();
-        if (!parseHexPayload(payload, &frame.data)) {
+
+        QByteArray data;
+        if (!parseHexPayload(payload, &data)) {
             return Outcome::fault(QStringLiteral("'%1' is not a hex payload (expected pairs of "
                                                  "hex digits, e.g. \"01 02 FF\").").arg(payload));
         }
-        if (frame.data.size() > 8)
-            return Outcome::fault(QStringLiteral("A LIN frame carries at most 8 bytes; got %1.")
-                                      .arg(frame.data.size()));
 
         QString error;
-        if (!transport->sendFrame(frame, &error))
-            return Outcome::fault(QStringLiteral("Could not send frame: %1").arg(error));
+        if (!backend->sendMessage(id, data, &error))
+            return Outcome::fault(QStringLiteral("Could not send %1: %2").arg(formatId(id), error));
 
         runner->logMessage(LogLevel::Info,
-                           QStringLiteral("Sent frame 0x%1: %2")
-                               .arg(frame.id, 2, 16, QLatin1Char('0'))
-                               .arg(QString::fromLatin1(frame.data.toHex(' '))),
+                           QStringLiteral("Sent %1: %2")
+                               .arg(formatId(id), QString::fromLatin1(data.toHex(' '))),
                            node.id);
         return Outcome::follow(QStringLiteral("out"));
     });
 
     m_handlers.insert(QStringLiteral("expect_frame"), [](ScenarioRunner *runner, const ScenarioNode &node) {
-        const int frameId = node.params.value(QStringLiteral("frameId")).toInt();
+        const int id = node.params.value(QStringLiteral("frameId")).toInt();
         const int timeoutMs = node.params.value(QStringLiteral("timeoutMs")).toInt();
         const QString payload = node.params.value(QStringLiteral("data")).toString();
 
@@ -787,13 +779,13 @@ void ScenarioRunner::installDefaultHandlers()
         }
 
         runner->logMessage(LogLevel::Info,
-                           QStringLiteral("Waiting up to %1 ms for frame 0x%2")
-                               .arg(timeoutMs).arg(frameId, 2, 16, QLatin1Char('0')),
+                           QStringLiteral("Waiting up to %1 ms for %2")
+                               .arg(timeoutMs).arg(formatId(id)),
                            node.id);
 
-        return runner->awaitFrame(frameId, expected, timeoutMs, QStringLiteral("received"),
-                                  QStringLiteral("timeout"));
+        return runner->awaitMessage(id, expected, timeoutMs, QStringLiteral("received"),
+                                    QStringLiteral("timeout"));
     });
 }
 
-} // namespace runtime
+} // namespace testbuilder

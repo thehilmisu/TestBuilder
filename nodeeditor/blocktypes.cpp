@@ -96,7 +96,7 @@ QVector<BlockType> makeBlocks()
     }
     {
         BlockType b;
-        b.id = QStringLiteral("reques_diagnostic");
+        b.id = QStringLiteral("request_diagnostic");
         b.title = QStringLiteral("Request Diagnostic");
         b.category = QStringLiteral("LIN Bus");
         b.description = QStringLiteral("Request Diagnostics from Device");

@@ -1,10 +1,6 @@
 #include "scenariomodel.h"
 
 #include "nodeeditor/blocktypes.h"
-#include "nodeeditor/connectionitem.h"
-#include "nodeeditor/nodeitem.h"
-#include "nodeeditor/nodescene.h"
-#include "nodeeditor/portitem.h"
 
 #include <QFile>
 #include <QFileInfo>
@@ -13,7 +9,7 @@
 #include <QQueue>
 #include <QSet>
 
-namespace runtime {
+namespace testbuilder {
 
 using nodeeditor::BlockLibrary;
 using nodeeditor::BlockType;
@@ -100,32 +96,6 @@ quint64 ScenarioModel::startNode() const
 quint64 ScenarioModel::next(quint64 nodeId, const QString &port) const
 {
     return m_edges.value(edgeKey(nodeId, port), 0);
-}
-
-ScenarioModel ScenarioModel::fromScene(const nodeeditor::NodeScene *scene)
-{
-    ScenarioModel model;
-    if (!scene)
-        return model;
-
-    for (const nodeeditor::NodeItem *item : scene->nodes()) {
-        ScenarioNode node;
-        node.id = item->getId();
-        node.typeId = item->typeId();
-        node.label = item->title();
-        node.params = coerceParams(node.typeId, item->params());
-        model.addNode(node);
-    }
-
-    for (const nodeeditor::ConnectionItem *connection : scene->connections()) {
-        const nodeeditor::PortItem *from = connection->source();
-        const nodeeditor::PortItem *to = connection->dest();
-        if (!from || !to || !from->node() || !to->node())
-            continue; // half-dragged link
-        model.addLink({from->node()->getId(), from->name(), to->node()->getId(), to->name()});
-    }
-
-    return model;
 }
 
 ScenarioModel ScenarioModel::fromJson(const QJsonObject &root, QStringList *errors)
@@ -283,4 +253,4 @@ QStringList ScenarioModel::validate() const
     return problems;
 }
 
-} // namespace runtime
+} // namespace testbuilder

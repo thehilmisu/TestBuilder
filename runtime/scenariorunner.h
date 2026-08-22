@@ -1,7 +1,7 @@
-#ifndef RUNTIME_SCENARIORUNNER_H
-#define RUNTIME_SCENARIORUNNER_H
+#ifndef TESTBUILDER_SCENARIORUNNER_H
+#define TESTBUILDER_SCENARIORUNNER_H
 
-#include "lintransport.h"
+#include "scenariobackend.h"
 #include "scenariomodel.h"
 
 #include <QElapsedTimer>
@@ -15,16 +15,16 @@
 
 class QTimer;
 
-namespace runtime {
+namespace testbuilder {
 
 // ---------------------------------------------------------------------------
 // Executes a ScenarioModel as a state machine.
 //
 // The runner never blocks. Every step either resolves immediately and hands
 // back the output port to leave by, or parks the machine on an event -- a
-// timer, a slave response, an incoming frame -- and the machine resumes when
-// that event (or its timeout) arrives. That is what keeps the UI responsive
-// during a `Wait 5000 ms` and what makes pause/stop possible mid-scenario.
+// timer, a requested value, an incoming message -- and resumes when that event
+// (or its timeout) arrives. That is what keeps a host UI responsive during a
+// `Wait 5000 ms` and what makes pause/stop possible mid-scenario.
 //
 // Block behaviour lives in handlers keyed by BlockType::id, so teaching the
 // runner a new block is registerHandler() plus the entry in blocktypes.cpp --
@@ -57,7 +57,7 @@ public:
             Follow, // leave through `port` now
             Await,  // the handler armed an event; the machine parks until it fires
             Halt,   // the scenario is over, with `verdict`
-            Fault   // the step could not be carried out (bad params, bus error)
+            Fault   // the step could not be carried out (bad params, backend error)
         };
 
         Kind kind = Kind::Follow;
@@ -76,12 +76,13 @@ public:
     explicit ScenarioRunner(QObject *parent = nullptr);
     ~ScenarioRunner() override;
 
-    // The runner does not take ownership; the transport must outlive it.
-    void setTransport(LinTransport *transport);
-    LinTransport *transport() const { return m_transport; }
+    // The runner does not take ownership; the backend must outlive it.
+    void setBackend(ScenarioBackend *backend);
+    ScenarioBackend *backend() const { return m_backend; }
 
     // Replaces the loaded scenario. Returns false (and fills `errors`) when the
-    // graph cannot run at all -- a missing Start block, say.
+    // graph cannot run at all -- a missing Start block, say. Anything else in
+    // `errors` is a warning the caller may choose to run past.
     bool load(const ScenarioModel &model, QStringList *errors = nullptr);
     const ScenarioModel &model() const { return m_model; }
 
@@ -91,17 +92,13 @@ public:
     qint64 elapsedMs() const;
     const QVector<LogEntry> &log() const { return m_log; }
 
-    // Pause between steps, purely so a run is watchable on the canvas. 0 runs
-    // the scenario as fast as the event loop allows.
+    // Pause between steps, purely so a run is watchable. 0 runs the scenario as
+    // fast as the event loop allows, which is what you want headless.
     void setStepDelayMs(int ms) { m_stepDelayMs = qMax(0, ms); }
     int stepDelayMs() const { return m_stepDelayMs; }
 
-    // How long an await waits before it gives up. Blocks with their own timeout
-    // parameter use that instead.
-    void setDefaultTimeoutMs(int ms) { m_defaultTimeoutMs = qMax(1, ms); }
-
-    // Runaway guard: a scenario whose Repeat loops back forever would otherwise
-    // spin until the process is killed.
+    // Runaway guard: a scenario that loops without an exit would otherwise spin
+    // until the process is killed.
     void setMaxSteps(int steps) { m_maxSteps = qMax(1, steps); }
 
     // Overrides the built-in behaviour for a block type, or teaches the runner
@@ -111,20 +108,22 @@ public:
     // --- helpers for handlers ----------------------------------------------
     void logMessage(LogLevel level, const QString &text, quint64 nodeId = 0);
 
-    // Values picked up during the run -- decoded diagnostic responses, mostly --
-    // which `expect_signal` consults before falling back to the bus.
+    // Values picked up during the run -- answers to requestValue(), mostly --
+    // which `expect_signal` consults before falling back to the backend.
     void setContextValue(const QString &key, const QVariant &value) { m_context[key] = value; }
     QVariant contextValue(const QString &key) const { return m_context.value(key); }
     bool hasContextValue(const QString &key) const { return m_context.contains(key); }
 
-    // Park the machine. Each returns an Outcome::Await for the handler to return.
+    // Park the machine. Each returns an Outcome::Await for the handler to
+    // return. Arm the wait *before* calling into the backend: a backend that
+    // answers synchronously is then still matched correctly.
     Outcome awaitTimer(int milliseconds, const QString &resumePort = QStringLiteral("out"));
-    Outcome awaitSlaveResponse(const QString &parameter, int timeoutMs,
-                               const QString &resumePort = QStringLiteral("out"),
-                               const QString &timeoutPort = QString());
-    Outcome awaitFrame(int frameId, const QByteArray &expectedData, int timeoutMs,
+    Outcome awaitValue(const QString &name, int timeoutMs,
                        const QString &resumePort = QStringLiteral("out"),
                        const QString &timeoutPort = QString());
+    Outcome awaitMessage(int messageId, const QByteArray &expectedData, int timeoutMs,
+                         const QString &resumePort = QStringLiteral("out"),
+                         const QString &timeoutPort = QString());
 
 public slots:
     void start();
@@ -134,36 +133,42 @@ public slots:
 
 signals:
     void started();
-    void stateChanged(runtime::ScenarioRunner::State state);
+    void stateChanged(testbuilder::ScenarioRunner::State state);
     void nodeEntered(quint64 nodeId);
     void nodeLeft(quint64 nodeId, const QString &port);
-    void logged(const runtime::ScenarioRunner::LogEntry &entry);
-    void finished(runtime::ScenarioRunner::Verdict verdict, const QString &reason);
+    void logged(const testbuilder::ScenarioRunner::LogEntry &entry);
+    void finished(testbuilder::ScenarioRunner::Verdict verdict, const QString &reason);
 
 private slots:
-    void onSlaveResponse(const runtime::DiagResponse &response);
-    void onFrameReceived(const runtime::LinFrame &frame);
-    void onTransportError(const QString &message);
+    void onValueReceived(const QString &name, const QVariant &value);
+    void onRequestFailed(const QString &name, const QString &reason);
+    void onMessageReceived(int id, const QByteArray &data);
+    void onBackendError(const QString &reason);
 
 private:
     // What the machine is currently parked on.
     struct Await
     {
-        enum class What { Nothing, Timer, SlaveResponse, Frame };
+        enum class What { Nothing, Timer, Value, Message };
 
         What what = What::Nothing;
-        QString parameter;
-        int frameId = -1;         // -1 matches any frame
-        QByteArray expectedData;  // empty matches any payload
+        QString name;             // Value: which one we asked for
+        int messageId = -1;       // Message: -1 matches any id
+        QByteArray expectedData;  // Message: empty matches any payload
         quint64 nodeId = 0;
         QString resumePort;
-        QString timeoutPort; // empty: a timeout fails the scenario
+        QString timeoutPort;      // empty: a timeout fails the scenario
+        bool resolved = false;    // a resume is already queued; ignore further events
         int generation = 0;
     };
 
     void installDefaultHandlers();
     Outcome enterRepeat(const ScenarioNode &node);
+    void armAwait(Await::What what, const QString &resumePort, const QString &timeoutPort,
+                  int timeoutMs);
+    void queueResume(const QString &port);
     void handleAwaitTimeout();
+
     void setState(State state);
     void scheduleStep();
     void executeStep();
@@ -174,7 +179,7 @@ private:
     void finish(Verdict verdict, const QString &reason);
 
     ScenarioModel m_model;
-    LinTransport *m_transport = nullptr;
+    ScenarioBackend *m_backend = nullptr;
     QHash<QString, Handler> m_handlers;
 
     State m_state = State::Idle;
@@ -183,7 +188,6 @@ private:
     int m_stepCount = 0;
     int m_maxSteps = 100000;
     int m_stepDelayMs = 120;
-    int m_defaultTimeoutMs = 1000;
 
     Await m_await;
     bool m_pauseRequested = false;
@@ -203,8 +207,8 @@ private:
     QVector<LogEntry> m_log;
 };
 
-} // namespace runtime
+} // namespace testbuilder
 
-Q_DECLARE_METATYPE(runtime::ScenarioRunner::LogEntry)
+Q_DECLARE_METATYPE(testbuilder::ScenarioRunner::LogEntry)
 
-#endif // RUNTIME_SCENARIORUNNER_H
+#endif // TESTBUILDER_SCENARIORUNNER_H

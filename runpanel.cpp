@@ -8,7 +8,7 @@
 #include <QSpinBox>
 #include <QVBoxLayout>
 
-using runtime::ScenarioRunner;
+using testbuilder::ScenarioRunner;
 
 namespace nodeeditor {
 
@@ -95,7 +95,7 @@ int RunPanel::stepDelayMs() const
     return m_stepDelay->value();
 }
 
-void RunPanel::attach(runtime::ScenarioRunner *runner)
+void RunPanel::attach(testbuilder::ScenarioRunner *runner)
 {
     if (m_runner)
         m_runner->disconnect(this);

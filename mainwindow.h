@@ -5,8 +5,8 @@
 
 class QAction;
 
-namespace runtime {
-class LinTransport;
+namespace testbuilder {
+class ScenarioBackend;
 class ScenarioRunner;
 }
 
@@ -45,8 +45,8 @@ private:
     nodeeditor::ScenarioIO *m_scenarioIO = nullptr;
     nodeeditor::RunPanel *m_runPanel = nullptr;
 
-    runtime::LinTransport *m_transport = nullptr;
-    runtime::ScenarioRunner *m_runner = nullptr;
+    testbuilder::ScenarioBackend *m_backend = nullptr;
+    testbuilder::ScenarioRunner *m_runner = nullptr;
 
     QAction *m_runAction = nullptr;
     QAction *m_stopAction = nullptr;

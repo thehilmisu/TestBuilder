@@ -8,8 +8,9 @@
 #include "scenarioio.h"
 #include "nodeeditor/portitem.h"
 #include "nodeeditor/propertypanel.h"
+#include "nodeeditor/scenemodel.h"
 #include "runpanel.h"
-#include "runtime/scenariomodel.h"
+#include "runtime/scenariobackend.h"
 #include "runtime/scenariorunner.h"
 
 #include <QAction>
@@ -23,7 +24,7 @@
 #include <QToolBar>
 
 using namespace nodeeditor;
-using runtime::ScenarioRunner;
+using testbuilder::ScenarioRunner;
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -91,11 +92,14 @@ void MainWindow::buildUi()
 
 void MainWindow::buildRunner()
 {
-    // Swap this for your hardware-backed LinTransport; nothing else changes.
-    m_transport = new runtime::SimulatedLinTransport(this);
+    // The engine talks to the outside world through a ScenarioBackend and
+    // nothing else. Swap this one line for your own implementation -- see
+    // examples/integration -- and the editor drives your application instead
+    // of a simulation.
+    m_backend = new testbuilder::SimulatedBackend(this);
 
     m_runner = new ScenarioRunner(this);
-    m_runner->setTransport(m_transport);
+    m_runner->setBackend(m_backend);
     m_runPanel->attach(m_runner);
 
     // Follow the run on the canvas: the block being executed gets the active
@@ -140,7 +144,7 @@ void MainWindow::runScenario()
     QStringList problems;
     // The canvas is the source of truth for a run; there is no need to save
     // first, and an unsaved experiment runs exactly like a saved one.
-    if (!m_runner->load(runtime::ScenarioModel::fromScene(m_scene), &problems)) {
+    if (!m_runner->load(toScenarioModel(m_scene), &problems)) {
         QMessageBox::warning(this, tr("Cannot run"),
                              tr("This scenario cannot be executed:\n\n%1")
                                  .arg(problems.join(QLatin1Char('\n'))));

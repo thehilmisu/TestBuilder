@@ -20,7 +20,7 @@ class RunPanel : public QWidget
 public:
     explicit RunPanel(QWidget *parent = nullptr);
 
-    void attach(runtime::ScenarioRunner *runner);
+    void attach(testbuilder::ScenarioRunner *runner);
     void clear();
 
     // Pace of the run, in ms between steps -- the user's setting, so MainWindow
@@ -28,11 +28,11 @@ public:
     int stepDelayMs() const;
 
 private:
-    void appendEntry(const runtime::ScenarioRunner::LogEntry &entry);
-    void showVerdict(runtime::ScenarioRunner::Verdict verdict, const QString &reason);
-    void showState(runtime::ScenarioRunner::State state);
+    void appendEntry(const testbuilder::ScenarioRunner::LogEntry &entry);
+    void showVerdict(testbuilder::ScenarioRunner::Verdict verdict, const QString &reason);
+    void showState(testbuilder::ScenarioRunner::State state);
 
-    runtime::ScenarioRunner *m_runner = nullptr;
+    testbuilder::ScenarioRunner *m_runner = nullptr;
     QLabel *m_status = nullptr;
     QSpinBox *m_stepDelay = nullptr;
     QPlainTextEdit *m_log = nullptr;

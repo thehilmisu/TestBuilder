@@ -12,6 +12,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
 
+# The scenario engine builds as a library of its own so it can be linked into
+# another application without the editor. See runtime/CMakeLists.txt.
+add_subdirectory(runtime)
+
 set(PROJECT_SOURCES
         main.cpp
         mainwindow.cpp
@@ -33,12 +37,8 @@ set(PROJECT_SOURCES
         nodeeditor/blockpalette.cpp
         nodeeditor/propertypanel.h
         nodeeditor/propertypanel.cpp
-        runtime/lintransport.h
-        runtime/lintransport.cpp
-        runtime/scenariomodel.h
-        runtime/scenariomodel.cpp
-        runtime/scenariorunner.h
-        runtime/scenariorunner.cpp
+        nodeeditor/scenemodel.h
+        nodeeditor/scenemodel.cpp
         runpanel.h
         runpanel.cpp
 )
@@ -67,9 +67,11 @@ else()
     endif()
 endif()
 
-target_link_libraries(TestBuilder PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
+target_link_libraries(TestBuilder PRIVATE
+    Qt${QT_VERSION_MAJOR}::Widgets
+    TestBuilder::Runtime
+)
 
-# The runtime layer includes "runtime/..." and "nodeeditor/..." from the root.
 target_include_directories(TestBuilder PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
 # Qt for iOS sets MACOSX_BUNDLE_GUI_IDENTIFIER automatically since Qt 6.1.

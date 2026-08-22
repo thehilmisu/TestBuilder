@@ -114,7 +114,7 @@ bool ScenarioIO::readFromFile(NodeScene *scene, const QString &filePath, QString
     // The model layer already parses this format, coerces params against their
     // ParamSpec and reports what it had to skip; here we only add back the
     // editor-only bits it deliberately drops -- the node positions.
-    const runtime::ScenarioModel model = runtime::ScenarioModel::fromFile(filePath, &collected);
+    const testbuilder::ScenarioModel model = testbuilder::ScenarioModel::fromFile(filePath, &collected);
     if (model.isEmpty()) {
         if (collected.isEmpty())
             collected.append(QObject::tr("%1 contains no blocks.").arg(filePath));
@@ -144,7 +144,7 @@ bool ScenarioIO::readFromFile(NodeScene *scene, const QString &filePath, QString
 
     QHash<quint64, NodeItem *> byId;
     for (const quint64 id : model.nodeIds()) {
-        const runtime::ScenarioNode *source = model.node(id);
+        const testbuilder::ScenarioNode *source = model.node(id);
         NodeItem *node = scene->addNode(source->typeId, positions.value(id));
         if (!node) {
             collected.append(QObject::tr("Skipped node %1: unknown block type '%2'.")
@@ -160,7 +160,7 @@ bool ScenarioIO::readFromFile(NodeScene *scene, const QString &filePath, QString
     }
 
     // Second pass: a link may reference a node that appears later in the file.
-    for (const runtime::ScenarioLink &link : model.links()) {
+    for (const testbuilder::ScenarioLink &link : model.links()) {
         NodeItem *from = byId.value(link.fromNode);
         NodeItem *to = byId.value(link.toNode);
         if (!from || !to)

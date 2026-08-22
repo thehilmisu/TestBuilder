@@ -1,5 +1,5 @@
-#ifndef RUNTIME_SCENARIOMODEL_H
-#define RUNTIME_SCENARIOMODEL_H
+#ifndef TESTBUILDER_SCENARIOMODEL_H
+#define TESTBUILDER_SCENARIOMODEL_H
 
 #include <QHash>
 #include <QJsonObject>
@@ -8,11 +8,7 @@
 #include <QVariantMap>
 #include <QVector>
 
-namespace nodeeditor {
-class NodeScene;
-}
-
-namespace runtime {
+namespace testbuilder {
 
 // One executable step. This is the graph stripped of everything the editor
 // needs and the runner does not: no positions, no colours, no QGraphicsItem.
@@ -39,16 +35,17 @@ struct ScenarioLink
 QVariantMap coerceParams(const QString &typeId, const QVariantMap &raw);
 
 // ---------------------------------------------------------------------------
-// The runner's view of a scenario. Built either from the live canvas or from
-// an exported .tbscn file, so a scenario runs identically in the editor and
-// from a command line.
+// The runner's view of a scenario: the graph with everything the editor needs
+// and the runner does not stripped out -- no positions, no colours, no
+// QGraphicsItem. Build one from an exported .tbscn file, or from a live canvas
+// with nodeeditor::toScenarioModel(), so a scenario runs identically inside the
+// editor and inside a host application that has never seen the editor.
 // ---------------------------------------------------------------------------
 class ScenarioModel
 {
 public:
     ScenarioModel() = default;
 
-    static ScenarioModel fromScene(const nodeeditor::NodeScene *scene);
     static ScenarioModel fromJson(const QJsonObject &root, QStringList *errors = nullptr);
     static ScenarioModel fromFile(const QString &path, QStringList *errors = nullptr);
 
@@ -87,6 +84,6 @@ private:
     QHash<QString, quint64> m_edges; // "12/pass" -> 34
 };
 
-} // namespace runtime
+} // namespace testbuilder
 
-#endif // RUNTIME_SCENARIOMODEL_H
+#endif // TESTBUILDER_SCENARIOMODEL_H
